@@ -1,5 +1,6 @@
 Try to find origin/real IP address behind coudflare against known IP range.
-\n\rUsage:
+```
+Usage:
 usage: cloudflareFCK.py [-h] -d DOMAIN -iplist IPLIST [--proxy PROXY] [--threads THREADS] [--debug] [-v]
                         [--port PORT [PORT ...]]
 
@@ -17,3 +18,4 @@ options:
   -v, --verbose         Enable verbose output for matched criteria.
   --port PORT [PORT ...]
                         Specify port(s) to test. If not provided, default ports 80 and 443 are used.
+```
