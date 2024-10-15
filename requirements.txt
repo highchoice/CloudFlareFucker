@@ -1,0 +1,5 @@
+argparse
+requests
+termcolor
+beautifulsoup4
+urllib3
