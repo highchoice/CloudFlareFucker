@@ -1,5 +1,5 @@
-Try to find reak IP address behind coudflare against known IP range.
-Usage:
+Try to find origin/real IP address behind coudflare against known IP range.
+\n\rUsage:
 usage: cloudflareFCK.py [-h] -d DOMAIN -iplist IPLIST [--proxy PROXY] [--threads THREADS] [--debug] [-v]
                         [--port PORT [PORT ...]]
 
