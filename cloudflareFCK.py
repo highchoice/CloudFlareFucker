@@ -6,7 +6,7 @@ import urllib3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 
-# Onemogućavanje SSL upozorenja ako se ignorišu sertifikati
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_page_info(url, headers, proxies=None, debug=False):
