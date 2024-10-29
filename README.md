@@ -1,4 +1,4 @@
-Try to find origin/real IP address behind coudflare against known IP range.
+Try to find origin/real IP address behind cloudflare against known IP range.
 ```
 Usage:
 usage: cloudflareFCK.py [-h] -d DOMAIN -iplist IPLIST [--proxy PROXY] [--threads THREADS] [--debug] [-v]
