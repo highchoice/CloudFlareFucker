@@ -113,7 +113,7 @@ def main():
     print(f"Fetching original content from {args.domain}...")
     headers = {
         'Host': args.domain,
-        'User-Agent': 'curl/7.68.0'
+        'User-Agent': 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
     }
     original_info = get_page_info(f"http://{args.domain}/", headers=headers, proxies=None, debug=args.debug)
 
