@@ -23,6 +23,7 @@ options:
 Useful info:
 ```
 https://www.secjuice.com/finding-real-ips-of-origin-servers-behind-cloudflare-or-tor/
+https://www.youtube.com/watch?v=UBZBL65Dv1w
 
 Tools:
 prips to generate ip list
