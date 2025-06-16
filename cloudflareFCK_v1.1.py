@@ -5,71 +5,74 @@ from bs4 import BeautifulSoup
 import urllib3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 import random
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Common headers that simulate a real browser
-BROWSER_HEADERS = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Cache-Control': 'max-age=0',
-    'TE': 'trailers',
-}
-
-def create_session(proxy=None, cookies=None):
-    session = requests.Session()
+def get_original_info_selenium(domain):
+    print(colored("\n[+] Getting original info using Selenium...", 'blue'))
     
-    # Configure retry strategy
-    retry = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504]
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
     
-    # Configure proxy if provided
-    if proxy:
-        session.proxies = {
-            "http": proxy,
-            "https": proxy
-        }
+    driver = webdriver.Chrome(options=chrome_options)
     
-    # Set cookies if provided
-    if cookies:
-        session.cookies.update(cookies)
-    
-    return session
-
-def get_page_info(url, headers, session=None, debug=False):
     try:
-        if not session:
-            session = create_session()
+        # Probamo prvo HTTPS
+        url = f"https://{domain}"
+        driver.get(url)
         
-        # Add random delay to avoid rate limiting
+        # Čekamo da se title pojavi (Cloudflare ima delay)
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, 'title')))
+        
+        # Random delay da izgleda kao ljudska interakcija
         time.sleep(random.uniform(1, 3))
         
-        # Merge our standard browser headers with the specific ones
-        final_headers = {**BROWSER_HEADERS, **headers}
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
         
-        response = session.get(
-            url,
-            headers=final_headers,
-            timeout=10,
-            verify=False
-        )
+        title = soup.title.string.strip() if soup.title else None
+        h1_tags = [h1.get_text(strip=True) for h1 in soup.find_all('h1')]
+        #content_length = len(page_source)
+        
+        
+        # Čitanje Content-Length iz headera preko JavaScript-a
+        content_length = driver.execute_script(
+            "return performance.getEntries()[0].transferSize || "
+            "performance.getEntries()[0].encodedBodySize || "
+            "document.documentElement.innerHTML.length"
+        )       
+        
+        
+        
+        print(colored("[+] Successfully retrieved original info with Selenium", 'green'))
+        print(f"Title: {title}")
+        print(f"Content Length: {content_length}")
+        print(f"H1 Tags: {h1_tags}")
+        
+        return {
+            'title': title,
+            'content_length': int(content_length),
+            'h1_tags': h1_tags
+        }
+        
+    except Exception as e:
+        print(colored(f"[-] Error getting original info: {str(e)}", 'red'))
+        return None
+    finally:
+        driver.quit()
+
+def get_page_info(url, headers, proxies=None, debug=False):
+    try:
+        response = requests.get(url, headers=headers, proxies=proxies, timeout=10, verify=False)
 
         if debug:
             print(colored(f"\nRequest to {url}:", 'cyan'))
@@ -86,33 +89,38 @@ def get_page_info(url, headers, session=None, debug=False):
             return {
                 'title': title,
                 'content_length': len(response.content),
+                #'content_length': int(response.headers.get('Content-Length', len(response.content))),                
                 'h1_tags': h1_tags,
-                'status_code': response.status_code,
-                'cookies': session.cookies.get_dict()
+                'status_code': response.status_code
             }
-        elif response.status_code in [403, 503, 429, 405]:
-            if debug:
-                print(colored(f"Cloudflare block detected for {url}. Status code: {response.status_code}", 'red'))
-                print(f"Response headers: {response.headers}")
-            return None
-    except Exception as e:
+    except requests.RequestException as e:
         if debug:
-            print(colored(f"Request failed for {url}: {str(e)}", 'red'))
+            print(colored(f"Request failed: {str(e)}", 'red'))
         return None
 
 def compare_responses(original_info, ip_info, ip, protocol, port, verbose=False):
     matched_criteria = []
     details = []
-
-    if ip_info['content_length'] == original_info['content_length']:
-        matched_criteria.append("Content-Length")
-        details.append(f"Content-Length: {original_info['content_length']}")
-    if ip_info['title'] == original_info['title']:
-        matched_criteria.append("Title")
-        details.append(f"Title: {original_info['title']}")
-    if ip_info['h1_tags'] == original_info['h1_tags']:
-        matched_criteria.append("H1 Tags")
-        details.append(f"H1 Tags: {', '.join(original_info['h1_tags']) if original_info['h1_tags'] else 'None'}")
+    content_length_diff = 0
+    
+    # Provera Content-Length sa tolerancijom ±50
+    if 'content_length' in ip_info and 'content_length' in original_info:
+        content_length_diff = abs(ip_info['content_length'] - original_info['content_length'])
+        if content_length_diff <= 1000:
+            matched_criteria.append("Content-Length")
+            details.append(f"Content-Length: {original_info['content_length']} (diff: {content_length_diff})")
+    
+    # Provera Title
+    if 'title' in ip_info and 'title' in original_info:
+        if ip_info['title'] == original_info['title']:
+            matched_criteria.append("Title")
+            details.append(f"Title: {original_info['title']}")
+    
+    # Provera H1 Tags
+    if 'h1_tags' in ip_info and 'h1_tags' in original_info:
+        if ip_info['h1_tags'] == original_info['h1_tags']:
+            matched_criteria.append("H1 Tags")
+            details.append(f"H1 Tags: {', '.join(original_info['h1_tags']) if original_info['h1_tags'] else 'None'}")
 
     if len(matched_criteria) == 3:
         if verbose:
@@ -123,34 +131,40 @@ def compare_responses(original_info, ip_info, ip, protocol, port, verbose=False)
             print(colored(f"Real IP found: {ip} on {protocol.upper()} (Port {port})", 'green'))
     elif matched_criteria:
         diff_criteria = set(["Content-Length", "Title", "H1 Tags"]) - set(matched_criteria)
-        print(colored(f"Possible IP found: {ip} on {protocol.upper()} (Port {port})", 'yellow'))
+        match_status = colored("Strong match", 'green') if len(matched_criteria) >= 2 else colored("Partial match", 'yellow')
+        
+        print(colored(f"Possible IP found: {ip} on {protocol.upper()} (Port {port}) - {match_status}", 'yellow'))
         print(f"Matched: {', '.join(matched_criteria)} | Differed: {', '.join(diff_criteria)}")
+        if content_length_diff > 0:
+            print(f"Content-Length difference: {content_length_diff} characters")
         print(f"Details:\n{chr(10).join(details)}")
 
-def check_single_ip(ip, domain, original_info, ports, proxy=None, debug=False, verbose=False, cookies=None):
-    session = create_session(proxy, cookies)
-    
+def check_single_ip(ip, domain, original_info, ports, proxy=None, debug=False, verbose=False):
+    proxies = {
+        "http": proxy,
+        "https": proxy
+    } if proxy else None
+
     for port in ports:
         protocol = 'https' if port == 443 else 'http'
         url = f"{protocol}://{ip}:{port}/"
         headers = {
             'Host': domain,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Referer': f'https://{domain}/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
         }
 
-        response_info = get_page_info(url, headers, session, debug)
+        response_info = get_page_info(url, headers, proxies, debug)
 
         if response_info:
             compare_responses(original_info, response_info, ip, protocol, port, verbose)
 
-def check_ip_in_threads(domain, ip_list_file, original_info, ports, proxy=None, threads=5, debug=False, verbose=False, cookies=None):
+def check_ip_in_threads(domain, ip_list_file, original_info, ports, proxy=None, threads=5, debug=False, verbose=False):
     with open(ip_list_file, 'r') as file:
         ips = [line.strip() for line in file if line.strip()]
 
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = [
-            executor.submit(check_single_ip, ip, domain, original_info, ports, proxy, debug, verbose, cookies)
+            executor.submit(check_single_ip, ip, domain, original_info, ports, proxy, debug, verbose)
             for ip in ips
         ]
 
@@ -170,57 +184,20 @@ def main():
     parser.add_argument('--debug', required=False, action='store_true', help='Prints request and response details for debugging.')
     parser.add_argument('-v', '--verbose', required=False, action='store_true', help='Enable verbose output for matched criteria.')
     parser.add_argument('--port', required=False, type=int, nargs='+', help='Specify port(s) to test. If not provided, default ports 80 and 443 are used.')
-    parser.add_argument('--cookies', required=False, help='Cookies to use (e.g., "cf_clearance=YOUR_CLEARANCE_COOKIE").')
 
     args = parser.parse_args()
 
     ports = args.port if args.port else [80, 443]
-    
-    # Parse cookies if provided
-    cookies = {}
-    if args.cookies:
-        for cookie in args.cookies.split(';'):
-            if '=' in cookie:
-                key, value = cookie.strip().split('=', 1)
-                cookies[key] = value
 
-    print(f"Fetching original content from {args.domain}...")
-    headers = {
-        'Host': args.domain,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': f'https://{args.domain}/'
-    }
-    
-    # Try with session to maintain cookies
-    session = create_session(args.proxy, cookies)
-    
-    # Try both HTTP and HTTPS in case one is blocked
-    for protocol in ['https', 'http']:
-        original_info = get_page_info(f"{protocol}://{args.domain}/", headers, session, args.debug)
-        if original_info:
-            break
-    
-    if original_info:
-        print(f"Original info: Content-Length={original_info['content_length']}, Title={original_info['title']}, H1 Tags={original_info['h1_tags']}")
-        # Update cookies with any new ones received
-        if original_info.get('cookies'):
-            cookies.update(original_info['cookies'])
-    else:
-        print("Failed to fetch the original page content. Exiting...")
+    # Step 1: Get original info using Selenium (only for the initial reference)
+    original_info = get_original_info_selenium(args.domain)
+    if not original_info:
+        print("Failed to get original page info. Exiting...")
         sys.exit(1)
 
+    # Step 2: Check IPs using the original method
     try:
-        check_ip_in_threads(
-            args.domain,
-            args.iplist,
-            original_info,
-            ports,
-            args.proxy,
-            args.threads,
-            args.debug,
-            args.verbose,
-            cookies
-        )
+        check_ip_in_threads(args.domain, args.iplist, original_info, ports, args.proxy, args.threads, args.debug, args.verbose)
     except KeyboardInterrupt:
         while True:
             user_input = input("\nCTRL+C detected. Do you want to quit (q) or continue (c)? ").lower()
@@ -232,9 +209,4 @@ def main():
                 break
 
 if __name__ == "__main__":
-    while True:
-        try:
-            main()
-            break
-        except KeyboardInterrupt:
-            continue
+    main()
