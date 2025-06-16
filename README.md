@@ -21,6 +21,9 @@ options:
 ```
 
 Useful info:
+```
 https://www.secjuice.com/finding-real-ips-of-origin-servers-behind-cloudflare-or-tor/
-\nTools:
-\nprips to generate ip list
+
+Tools:
+prips to generate ip list
+```
