@@ -1,4 +1,4 @@
-Try to find origin/real IP address behind cloudflare against known IP range.
+Try to find origin/real IP address behind cloudflare against possible IP range.
 ```
 Usage:
 usage: cloudflareFCK.py [-h] -d DOMAIN -iplist IPLIST [--proxy PROXY] [--threads THREADS] [--debug] [-v]
@@ -19,3 +19,8 @@ options:
   --port PORT [PORT ...]
                         Specify port(s) to test. If not provided, default ports 80 and 443 are used.
 ```
+
+Useful info:
+https://www.secjuice.com/finding-real-ips-of-origin-servers-behind-cloudflare-or-tor/
+Tools:
+prips to generate ip list
