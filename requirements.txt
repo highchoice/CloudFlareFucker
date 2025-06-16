@@ -1,5 +1,5 @@
-argparse
-requests
-termcolor
-beautifulsoup4
-urllib3
+beautifulsoup4==4.13.4
+Requests==2.32.4
+selenium==4.33.0
+termcolor==3.1.0
+urllib3==2.4.0
